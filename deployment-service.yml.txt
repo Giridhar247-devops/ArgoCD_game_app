@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gaming-app
+  namespace: gaming
+  labels:
+    app: gaming-app
+    tier: frontend
+spec:
+  replicas: 3  # Three replicas for high availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Ensure zero downtime during updates
+  selector:
+    matchLabels:
+      app: gaming-app
+  template:
+    metadata:
+      labels:
+        app: gaming-app
+        tier: frontend
+    spec:
+      containers:
+      - name: gaming-app
+        image: your-registry/gaming-app:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 8080
+          name: node
+        - containerPort: 8081
+          name: ws
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "8080"
+        - name: WS_PORT
+          value: "8081"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: gaming-app-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: gaming-app-secrets
+              key: redis-url
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: game-assets
+          mountPath: /usr/share/nginx/html/assets
+        - name: logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: game-assets
+        persistentVolumeClaim:
+          claimName: game-assets-pvc
+      - name: logs
+        emptyDir: {}
+      terminationGracePeriodSeconds: 30
+      # Affinity rules to spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - gaming-app
+              topologyKey: kubernetes.io/hostname
